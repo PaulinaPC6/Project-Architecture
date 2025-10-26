@@ -1,0 +1,83 @@
+services:
+  database:
+    image: postgis/postgis:15-3.3
+    container_name: geo-database
+    environment:
+      POSTGRES_DB: geo_db
+      POSTGRES_USER: geo_user
+      POSTGRES_PASSWORD: geo_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - geo_postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - geo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo_user -d geo_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: geo-backend
+    container_name: geo-backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgres://geo_user:geo_password@database:5432/geo_db
+      DEBUG: "True"
+      DB_NAME: geo_db
+      DB_USER: geo_user
+      DB_PASSWORD: geo_password
+      DB_HOST: database
+      DB_PORT: "5432"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - geo-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: geo-frontend
+    container_name: geo-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - geo-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5173/ > /dev/null || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  geo-network:
+    name: geo-network
+    driver: bridge
+
+volumes:
+  geo_postgres_data:
+    name: geo_postgres_data
